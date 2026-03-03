@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/buseozbek/PycharmProjects/PythonProject2/mlruns/726509724831903623/08f6ca32ee224041a3e6580d62a93a87/artifacts
+end_time: 1772525510412
+entry_point_name: ''
+experiment_id: '726509724831903623'
+lifecycle_stage: active
+run_id: 08f6ca32ee224041a3e6580d62a93a87
+run_name: logistic_regression_v1
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1772525509152
+status: 3
+tags: []
+user_id: buseozbek

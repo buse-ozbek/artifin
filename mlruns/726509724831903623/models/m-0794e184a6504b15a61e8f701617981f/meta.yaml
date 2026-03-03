@@ -1,0 +1,10 @@
+artifact_location: file:///Users/buseozbek/PycharmProjects/PythonProject2/mlruns/726509724831903623/models/m-0794e184a6504b15a61e8f701617981f/artifacts
+creation_timestamp: 1772525643561
+experiment_id: '726509724831903623'
+last_updated_timestamp: 1772525644843
+model_id: m-0794e184a6504b15a61e8f701617981f
+model_type: null
+name: model
+source_run_id: 8be82338b0844326bc681b661a38330e
+status: 2
+status_message: null

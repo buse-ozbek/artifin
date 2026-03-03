@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/buseozbek/PycharmProjects/PythonProject2/mlruns/726509724831903623/833afc2552b6420592af268737369077/artifacts
+end_time: 1772525454249
+entry_point_name: ''
+experiment_id: '726509724831903623'
+lifecycle_stage: active
+run_id: 833afc2552b6420592af268737369077
+run_name: my_first_run
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1772525454243
+status: 3
+tags: []
+user_id: buseozbek
