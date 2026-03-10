@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/buseozbek/PycharmProjects/PythonProject2/mlruns/766586639226301497/d65bccf7ce9e4b779cc3a24c5921e8f5/artifacts
+end_time: 1773078385343
+entry_point_name: ''
+experiment_id: '766586639226301497'
+lifecycle_stage: active
+run_id: d65bccf7ce9e4b779cc3a24c5921e8f5
+run_name: Exp2_RandomForest
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1773078382767
+status: 3
+tags: []
+user_id: buseozbek

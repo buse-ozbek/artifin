@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/buseozbek/PycharmProjects/PythonProject2/mlruns/766586639226301497/c58e4be0394b47e1ac61910d38a5447d/artifacts
+end_time: 1773074195140
+entry_point_name: ''
+experiment_id: '766586639226301497'
+lifecycle_stage: active
+run_id: c58e4be0394b47e1ac61910d38a5447d
+run_name: Exp2_GradientBoosting
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1773074177845
+status: 3
+tags: []
+user_id: buseozbek
