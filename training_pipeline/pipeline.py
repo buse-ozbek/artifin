@@ -106,6 +106,7 @@ def train_and_log(run_name, model, X_train, X_test, y_train, y_test,
         # Also save locally so predict_pipeline.py can load it
         save_path = os.path.join(MODEL_DIR, f"{run_name}.pkl")
         joblib.dump(pipe, save_path)
+
         mlflow.log_artifact(save_path)
 
         print(f"\n{'─'*52}")
@@ -224,12 +225,6 @@ def main():
     scores[best_rmse] += 1
     scores[best_r2]   += 1
 
-    best_name = max(scores, key=scores.get)
-    best_path = all_models[best_name][1]
-
-    ref_file = os.path.join(MODEL_DIR, "best_model_path.txt")
-    with open(ref_file, "w") as f:
-        f.write(best_path)
     best_name = max(scores, key=scores.get)
     best_path = all_models[best_name][1]
 

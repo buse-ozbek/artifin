@@ -24,9 +24,6 @@ import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional
-from sklearn.preprocessing import LabelEncoder
-import sys
 
 # ─────────────────────────────────────────────────────────
 # MLFLOW SETUP
@@ -172,38 +169,8 @@ class PredictRequest(BaseModel):
 @app.post("/predict")
 def predict_endpoint(req: PredictRequest):
     try:
-        prediction = predict(req.dict())
+        prediction = predict(req.model_dump())
         return {"prediction": prediction}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# ─────────────────────────────────────────────────────────
-# COMMAND LINE SUPPORT (for quick testing without the server)
-# Usage: python app.py S001 P0005 Electronics North 200 150.5 49.99 10 Sunny 1 52.00 Winter 2024-03-15
-# ─────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    if len(sys.argv) != 15:
-        print("Usage: python app.py store_id product_id category region "
-              "inventory_level demand_forecast price discount "
-              "weather_condition holiday_promotion competitor_pricing "
-              "seasonality date")
-        sys.exit(1)
-
-    sample = {
-        "store_id":          sys.argv[1],
-        "product_id":        sys.argv[2],
-        "category":          sys.argv[3],
-        "region":            sys.argv[4],
-        "inventory_level":   float(sys.argv[5]),
-        "demand_forecast":   float(sys.argv[6]),
-        "price":             float(sys.argv[7]),
-        "discount":          float(sys.argv[8]),
-        "weather_condition": sys.argv[9],
-        "holiday_promotion": int(sys.argv[10]),
-        "competitor_pricing":float(sys.argv[11]),
-        "seasonality":       sys.argv[12],
-        "date":              sys.argv[13],
-    }
-    result = predict(sample)
-    print("Prediction:", result)
