@@ -1,2 +1,15 @@
+cat > .gitignore << 'EOF'
 retail_store_inventory.csv
-
+models/
+__pycache__/
+*.pkl
+.venv/
+mlruns/
+*.pyc
+predictions.csv
+.DS_Store
+.idea/
+main.py
+uv.lock
+pyproject.toml
+EOF
