@@ -3,34 +3,48 @@ app.py
 ======
 Retail Store Inventory — FastAPI Prediction Service
 
-Exposes your trained ML model as a REST API so anyone
-(or any system) can send store/product data and get a
-demand prediction back.
+Loads the best trained model directly from the MLflow Model Registry
+(just like the professor's version) and serves predictions via FastAPI.
 
 Usage:
-    pip install fastapi uvicorn
-    uvicorn app:app --reload
+    # Make sure mlflow ui is running first:
+    mlflow ui --port 5001
+
+    # Then start the API:
+    uvicorn app:app --reload --port 8001
 
 Then open:
-    http://127.0.0.1:8000          → welcome message
-    http://127.0.0.1:8000/docs     → interactive API docs (try it live!)
-    http://127.0.0.1:8000/predict  → POST endpoint for predictions
+    http://127.0.0.1:8001/docs  → interactive API docs
 """
 
+import mlflow
+import mlflow.pyfunc
 import os
-import joblib
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 from sklearn.preprocessing import LabelEncoder
+import sys
 
 # ─────────────────────────────────────────────────────────
-# CONFIG
+# MLFLOW SETUP
+# Connect to your running MLflow server
 # ─────────────────────────────────────────────────────────
-MODEL_DIR   = "models"
-DEFAULT_REF = os.path.join(MODEL_DIR, "best_model_path.txt")
+mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://127.0.0.1:5001"))
 
+# ─────────────────────────────────────────────────────────
+# LOAD MODEL FROM MLFLOW MODEL REGISTRY
+# This loads the model that pipeline.py registered as "Staging"
+# ─────────────────────────────────────────────────────────
+loaded_model = mlflow.pyfunc.load_model(
+    "models:/retail_demand_model@Staging"
+)
+
+# ─────────────────────────────────────────────────────────
+# CONFIG — must match pipeline.py exactly
+# ─────────────────────────────────────────────────────────
 FEATURE_COLS = [
     "Store ID", "Product ID", "Category", "Region",
     "Inventory Level", "Demand Forecast", "Price", "Discount",
@@ -44,26 +58,63 @@ CAT_COLS = [
 
 
 # ─────────────────────────────────────────────────────────
-# LOAD MODEL AT STARTUP
+# PREPROCESSING — mirrors pipeline.py exactly
 # ─────────────────────────────────────────────────────────
-def load_model():
-    if not os.path.exists(DEFAULT_REF):
-        raise FileNotFoundError(
-            "No model found. Please run pipeline.py first."
-        )
-    with open(DEFAULT_REF) as f:
-        model_path = f.read().strip()
+def preprocess(input_data: dict) -> pd.DataFrame:
+    date = pd.to_datetime(input_data["date"])
 
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model file not found: {model_path}")
+    row = {
+        "Store ID":           input_data["store_id"],
+        "Product ID":         input_data["product_id"],
+        "Category":           input_data["category"],
+        "Region":             input_data["region"],
+        "Inventory Level":    input_data["inventory_level"],
+        "Demand Forecast":    input_data["demand_forecast"],
+        "Price":              input_data["price"],
+        "Discount":           input_data["discount"],
+        "Weather Condition":  input_data["weather_condition"],
+        "Holiday/Promotion":  input_data["holiday_promotion"],
+        "Competitor Pricing": input_data["competitor_pricing"],
+        "Seasonality":        input_data["seasonality"],
+        "Year":               date.year,
+        "Month":              date.month,
+        "DayOfWeek":          date.dayofweek,
+    }
 
-    model = joblib.load(model_path)
-    print(f"✓ Model loaded: {model_path}")
-    return model, model_path
+    df = pd.DataFrame([row])
+
+    # Hardcoded maps — same order as pipeline.py's LabelEncoder saw during training
+    category_map    = {"Clothing": 0, "Electronics": 1, "Furniture": 2, "Groceries": 3, "Toys": 4}
+    region_map      = {"East": 0, "North": 1, "South": 2, "West": 3}
+    weather_map     = {"Cloudy": 0, "Rainy": 1, "Snowy": 2, "Sunny": 3}
+    seasonality_map = {"Autumn": 0, "Spring": 1, "Summer": 2, "Winter": 3}
+
+    df["Category"]          = df["Category"].map(category_map)
+    df["Region"]            = df["Region"].map(region_map)
+    df["Weather Condition"] = df["Weather Condition"].map(weather_map)
+    df["Seasonality"]       = df["Seasonality"].map(seasonality_map)
+
+    # Store ID and Product ID — extract the number part
+    df["Store ID"]   = df["Store ID"].str.extract(r'(\d+)').astype(int) - 1
+    df["Product ID"] = df["Product ID"].str.extract(r'(\d+)').astype(int) - 1
+
+    return df[FEATURE_COLS]
 
 
-# Load the model once when the server starts
-model, model_path = load_model()
+# ─────────────────────────────────────────────────────────
+# PREDICT FUNCTION
+# ─────────────────────────────────────────────────────────
+def predict(input_data: dict):
+    df = preprocess(input_data)
+    df = np.array(df)
+
+    # Ensure shape is (1, n_features)
+    if df.ndim == 1:
+        df = df.reshape(1, -1)
+
+    prediction = loaded_model.predict(df)
+    prediction = max(0, int(round(float(prediction[0]))))
+    return prediction
 
 
 # ─────────────────────────────────────────────────────────
@@ -71,35 +122,29 @@ model, model_path = load_model()
 # ─────────────────────────────────────────────────────────
 app = FastAPI(
     title="Retail Demand Forecasting API",
-    description=(
-        "Predicts daily Units Sold for a retail store product "
-        "based on store context, pricing, weather, and more."
-    ),
+    description="Predicts daily Units Sold using a model loaded from MLflow Model Registry.",
     version="1.0.0",
 )
 
-#YOU CAN DELETE THIS PART, HOCA SAID IT'S NOT NECESSARY BECAUSE AS THE DATA SCIENTIST YOU WILL CHOOSE THE MODEL, NOT THE USER
 
 # ─────────────────────────────────────────────────────────
-# INPUT SCHEMA
-# This defines exactly what data the API expects to receive
+# INPUT / OUTPUT SCHEMAS
 # ─────────────────────────────────────────────────────────
-class PredictionInput(BaseModel):
-    date: str               # e.g. "2024-03-15"
-    store_id: str           # e.g. "S001"
-    product_id: str         # e.g. "P0005"
-    category: str           # e.g. "Electronics"
-    region: str             # e.g. "North"
-    inventory_level: float  # e.g. 200
-    demand_forecast: float  # e.g. 150.5
-    price: float            # e.g. 49.99
-    discount: float         # e.g. 10  (percentage)
-    weather_condition: str  # e.g. "Sunny"
-    holiday_promotion: int  # 0 or 1
-    competitor_pricing: float  # e.g. 52.00
-    seasonality: str        # e.g. "Winter"
+class PredictRequest(BaseModel):
+    date: str                       # e.g. "2024-03-15"
+    store_id: str                   # e.g. "S001"
+    product_id: str                 # e.g. "P0005"
+    category: str                   # e.g. "Electronics"
+    region: str                     # e.g. "North"
+    inventory_level: float          # e.g. 200
+    demand_forecast: float          # e.g. 150.5
+    price: float                    # e.g. 49.99
+    discount: float                 # e.g. 10
+    weather_condition: str          # e.g. "Sunny"
+    holiday_promotion: int          # 0 or 1
+    competitor_pricing: float       # e.g. 52.00
+    seasonality: str                # e.g. "Winter"
 
-    # Example shown in the /docs page
     class Config:
         json_schema_extra = {
             "example": {
@@ -121,121 +166,44 @@ class PredictionInput(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────
-# OUTPUT SCHEMA
-# This defines what the API sends back
-# ─────────────────────────────────────────────────────────
-class PredictionOutput(BaseModel):
-    predicted_units_sold: int
-    model_used: str
-    input_summary: dict
-
-
-# ─────────────────────────────────────────────────────────
-# PREPROCESSING  (mirrors pipeline.py exactly)
-# ─────────────────────────────────────────────────────────
-def preprocess_input(data: PredictionInput) -> pd.DataFrame:
-    # Parse date
-    date = pd.to_datetime(data.date)
-
-    # Build a one-row dataframe with the same column names as training
-    row = {
-        "Store ID":          data.store_id,
-        "Product ID":        data.product_id,
-        "Category":          data.category,
-        "Region":            data.region,
-        "Inventory Level":   data.inventory_level,
-        "Demand Forecast":   data.demand_forecast,
-        "Price":             data.price,
-        "Discount":          data.discount,
-        "Weather Condition": data.weather_condition,
-        "Holiday/Promotion": data.holiday_promotion,
-        "Competitor Pricing":data.competitor_pricing,
-        "Seasonality":       data.seasonality,
-        "Year":              date.year,
-        "Month":             date.month,
-        "DayOfWeek":         date.dayofweek,
-    }
-    df = pd.DataFrame([row])
-
-    # Encode categoricals (same as training)
-    le = LabelEncoder()
-    for col in CAT_COLS:
-        df[col] = le.fit_transform(df[col].astype(str))
-
-    return df[FEATURE_COLS]
-
-
-# ─────────────────────────────────────────────────────────
-# ROUTES (API Endpoints)
+# ENDPOINTS
 # ─────────────────────────────────────────────────────────
 
-# GET / → welcome message
-@app.get("/")
-def root():
-    return {
-        "message": "🛒 Retail Demand Forecasting API is running!",
-        "docs": "Visit /docs to try the API interactively",
-        "model": model_path,
-    }
-
-
-# GET /health → check if the API is alive
-@app.get("/health")
-def health_check():
-    return {
-        "status": "healthy",
-        "model_loaded": True,
-        "model_path": model_path,
-    }
-
-
-# POST /predict → main prediction endpoint
-@app.post("/predict", response_model=PredictionOutput)
-def predict(input_data: PredictionInput):
+@app.post("/predict")
+def predict_endpoint(req: PredictRequest):
     try:
-        # Preprocess the incoming data
-        X = preprocess_input(input_data)
-
-        # Run prediction
-        prediction = model.predict(X)[0]
-        prediction = max(0, int(round(prediction)))  # no negatives, whole number
-
-        return PredictionOutput(
-            predicted_units_sold=prediction,
-            model_used=os.path.basename(model_path),
-            input_summary={
-                "store":    input_data.store_id,
-                "product":  input_data.product_id,
-                "category": input_data.category,
-                "date":     input_data.date,
-            }
-        )
-
+        prediction = predict(req.dict())
+        return {"prediction": prediction}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# POST /predict/batch → predict multiple rows at once
-@app.post("/predict/batch")
-def predict_batch(inputs: list[PredictionInput]):
-    if len(inputs) > 500:
-        raise HTTPException(
-            status_code=400,
-            detail="Batch size too large. Maximum 500 rows per request."
-        )
-    try:
-        results = []
-        for item in inputs:
-            X = preprocess_input(item)
-            pred = model.predict(X)[0]
-            pred = max(0, int(round(pred)))
-            results.append({
-                "store_id":            item.store_id,
-                "product_id":          item.product_id,
-                "date":                item.date,
-                "predicted_units_sold": pred,
-            })
-        return {"predictions": results, "count": len(results)}
+# ─────────────────────────────────────────────────────────
+# COMMAND LINE SUPPORT (for quick testing without the server)
+# Usage: python app.py S001 P0005 Electronics North 200 150.5 49.99 10 Sunny 1 52.00 Winter 2024-03-15
+# ─────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    if len(sys.argv) != 15:
+        print("Usage: python app.py store_id product_id category region "
+              "inventory_level demand_forecast price discount "
+              "weather_condition holiday_promotion competitor_pricing "
+              "seasonality date")
+        sys.exit(1)
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    sample = {
+        "store_id":          sys.argv[1],
+        "product_id":        sys.argv[2],
+        "category":          sys.argv[3],
+        "region":            sys.argv[4],
+        "inventory_level":   float(sys.argv[5]),
+        "demand_forecast":   float(sys.argv[6]),
+        "price":             float(sys.argv[7]),
+        "discount":          float(sys.argv[8]),
+        "weather_condition": sys.argv[9],
+        "holiday_promotion": int(sys.argv[10]),
+        "competitor_pricing":float(sys.argv[11]),
+        "seasonality":       sys.argv[12],
+        "date":              sys.argv[13],
+    }
+    result = predict(sample)
+    print("Prediction:", result)

@@ -230,16 +230,41 @@ def main():
     ref_file = os.path.join(MODEL_DIR, "best_model_path.txt")
     with open(ref_file, "w") as f:
         f.write(best_path)
+    best_name = max(scores, key=scores.get)
+    best_path = all_models[best_name][1]
+
+    ref_file = os.path.join(MODEL_DIR, "best_model_path.txt")
+    with open(ref_file, "w") as f:
+        f.write(best_path)
+
+    # ── REGISTER BEST MODEL IN MLFLOW MODEL REGISTRY ─────
+    registered_model_name = "retail_demand_model"
+    model_uri = f"runs:/{mlflow.last_active_run().info.run_id}/model"
+
+    print(f"\n  Registering best model in MLflow Model Registry...")
+    result = mlflow.register_model(
+        model_uri = model_uri,
+        name      = registered_model_name,
+    )
+
+    client = mlflow.tracking.MlflowClient()
+    client.set_registered_model_alias(
+        name=registered_model_name,
+        alias="Staging",
+        version=result.version,
+    )
+    print(f"  Model registered as: {registered_model_name} -> Staging")
 
     print(f"\n{'='*52}")
     print(f"  RESULTS SUMMARY")
-    print(f"  Exp1 LinearRegression  → R²={metrics_lr['R2']}  MAE={metrics_lr['MAE']}  RMSE={metrics_lr['RMSE']}")
-    print(f"  Exp2 RandomForest      → R²={metrics_rf['R2']}  MAE={metrics_rf['MAE']}  RMSE={metrics_rf['RMSE']}")
-    print(f"  Exp3 GradientBoosting  → R²={metrics_gb['R2']}  MAE={metrics_gb['MAE']}  RMSE={metrics_gb['RMSE']}")
+    print(f"  Exp1 LinearRegression  -> R2={metrics_lr['R2']}  MAE={metrics_lr['MAE']}  RMSE={metrics_lr['RMSE']}")
+    print(f"  Exp2 RandomForest      -> R2={metrics_rf['R2']}  MAE={metrics_rf['MAE']}  RMSE={metrics_rf['RMSE']}")
+    print(f"  Exp3 GradientBoosting  -> R2={metrics_gb['R2']}  MAE={metrics_gb['MAE']}  RMSE={metrics_gb['RMSE']}")
     print(f"\n  Voting scores: {scores}")
-    print(f"\n  ✓ Best model : {best_name}  (score: {scores[best_name]}/3)")
-    print(f"  ✓ Saved to   : {best_path}")
-    print(f"\n  Run 'mlflow ui' → http://localhost:5001 to compare experiments.")
+    print(f"\n  Best model : {best_name}  (score: {scores[best_name]}/3)")
+    print(f"  Saved to   : {best_path}")
+    print(f"  Registered : models:/{registered_model_name}/Staging")
+    print(f"\n  Run 'mlflow ui' -> http://localhost:5001 to compare experiments.")
     print("=" * 52)
 
 
