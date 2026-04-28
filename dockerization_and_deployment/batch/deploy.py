@@ -21,7 +21,7 @@ The flow is scheduled daily at 14:35. To trigger manually:
     prefect deployment run "retail-demand-training-pipeline/retail-daily-training"
 """
 
-from train_predict_scheduled import retail_demand_training_pipeline
+from dockerization_and_deployment.batch.train_predict_scheduled import retail_demand_training_pipeline
 
 if __name__ == "__main__":
     retail_demand_training_pipeline.serve(
