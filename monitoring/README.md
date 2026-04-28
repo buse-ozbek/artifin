@@ -17,17 +17,34 @@ We simulate incoming production data with realistic drift, log live API predicti
 ---
 
 ## Project Structure
+The monitoring pipeline lives in the `monitoring/` folder:
+
+
 ```
 .
+monitoring/
 ├── data/
 │   ├── reference.csv
 │   └── current_batches/
+│       └── *.csv
 ├── scripts/
 │   ├── prepare_reference.py
 │   ├── generate_batch.py
 │   └── calculate_metrics.py
-├── docker-compose.yml
-└── README.md
+├── README.md
+└── Retail_demand_monitoring_pipeline.png
+
+```
+Supporting files at the project root:
+
+```
+PythonProject2/
+├── docker-compose.yml      # Postgres + Adminer + Grafana
+├── Dockerfile              # FastAPI service image
+└── training_pipeline/
+    ├── pipeline.py         # trains and registers the model
+    └── app.py              # FastAPI service that logs to Postgres
+
 ```
 
 The training pipeline (`pipeline.py`), the FastAPI service (`app.py`), and the
