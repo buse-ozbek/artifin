@@ -1,15 +1,28 @@
-cat > .gitignore << 'EOF'
-retail_store_inventory.csv
-models/
-__pycache__/
-*.pkl
-.venv/
-mlruns/
-*.pyc
-predictions.csv
+# macOS
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pkl
+
+# Virtual environment
+.venv/
+
+# IDE
 .idea/
-main.py
-uv.lock
-pyproject.toml
-EOF
+
+# MLflow local runs
+mlruns/
+
+# Trained model artifacts (re-created by pipeline)
+models/
+
+# Large data files
+retail_store_inventory.csv
+predictions.csv
+
+
+# Outputs / temp
+outputs/
+*.db

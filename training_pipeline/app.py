@@ -4,14 +4,18 @@ app.py
 Retail Store Inventory — FastAPI Prediction Service
 
 Loads the best trained model directly from the MLflow Model Registry
-(just like the professor's version) and serves predictions via FastAPI.
+and serves predictions via FastAPI. Every prediction is logged to
+Postgres for monitoring.
 
 Usage:
-    # Make sure mlflow ui is running first:
-    mlflow ui --port 5001
+    # Make sure mlflow is running first:
+    mlflow server --backend-store-uri ./mlruns --default-artifact-root ./mlruns --host 0.0.0.0 --port 5001 --serve-artifacts
+
+    # Make sure Postgres is up:
+    docker-compose up -d
 
     # Then start the API:
-    uvicorn app:app --reload --port 8001
+    uvicorn training_pipeline.app:app --reload --port 8001
 
 Then open:
     http://127.0.0.1:8001/docs  → interactive API docs
@@ -20,8 +24,10 @@ Then open:
 import mlflow
 import mlflow.pyfunc
 import os
+import datetime
 import numpy as np
 import pandas as pd
+import psycopg
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -38,6 +44,72 @@ mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://127.0.0.1:
 loaded_model = mlflow.pyfunc.load_model(
     "models:/retail_demand_model@Staging"
 )
+
+# ─────────────────────────────────────────────────────────
+# POSTGRES — for logging every prediction
+# ─────────────────────────────────────────────────────────
+PG_CONFIG = {
+    "host":     os.getenv("POSTGRES_HOST", "localhost"),
+    "port":     os.getenv("POSTGRES_PORT", "5432"),
+    "dbname":   os.getenv("POSTGRES_DB",   "monitoring"),
+    "user":     os.getenv("POSTGRES_USER", "retail"),
+    "password": os.getenv("POSTGRES_PASSWORD", "retail123"),
+}
+
+
+def ensure_log_table():
+    """Create the prediction_logs table if it doesn't exist."""
+    try:
+        with psycopg.connect(**PG_CONFIG) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS prediction_logs (
+                        id              SERIAL PRIMARY KEY,
+                        timestamp       TIMESTAMP NOT NULL,
+                        store_id        TEXT,
+                        product_id      TEXT,
+                        category        TEXT,
+                        region          TEXT,
+                        price           FLOAT,
+                        discount        FLOAT,
+                        weather_condition TEXT,
+                        seasonality     TEXT,
+                        prediction      INT
+                    );
+                """)
+    except Exception as e:
+        print(f"[WARN] could not ensure log table: {e}")
+
+
+def log_prediction(input_data: dict, prediction: int):
+    """Insert one row into prediction_logs."""
+    try:
+        with psycopg.connect(**PG_CONFIG) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO prediction_logs
+                        (timestamp, store_id, product_id, category, region,
+                         price, discount, weather_condition, seasonality, prediction)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    datetime.datetime.utcnow(),
+                    input_data["store_id"],
+                    input_data["product_id"],
+                    input_data["category"],
+                    input_data["region"],
+                    input_data["price"],
+                    input_data["discount"],
+                    input_data["weather_condition"],
+                    input_data["seasonality"],
+                    prediction,
+                ))
+    except Exception as e:
+        # Logging failure should NEVER break the API
+        print(f"[WARN] could not log prediction: {e}")
+
+
+# Run table-creation once at startup
+ensure_log_table()
 
 # ─────────────────────────────────────────────────────────
 # CONFIG — must match pipeline.py exactly
@@ -169,8 +241,9 @@ class PredictRequest(BaseModel):
 @app.post("/predict")
 def predict_endpoint(req: PredictRequest):
     try:
-        prediction = predict(req.model_dump())
+        data = req.model_dump()
+        prediction = predict(data)
+        log_prediction(data, prediction)   # write to Postgres
         return {"prediction": prediction}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
