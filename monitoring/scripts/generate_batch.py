@@ -36,18 +36,15 @@ CAT_COLS = ["Store ID", "Product ID", "Category", "Region",
 
 
 def main():
-    # parse CLI args
     parser = argparse.ArgumentParser(description="Generate a fake batch of retail data.")
     parser.add_argument("--size", type=int, default=200, help="Number of rows in the batch")
     args = parser.parse_args()
 
     os.makedirs("data/current_batches", exist_ok=True)
 
-    # load model
     mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
     model = mlflow.pyfunc.load_model("models:/retail_demand_model@Staging")
 
-    # load retail data
     df = pd.read_csv("../retail_store_inventory.csv")
     df["Date"]      = pd.to_datetime(df["Date"])
     df["Year"]      = df["Date"].dt.year
@@ -61,25 +58,18 @@ def main():
     X = df[MODEL_FEATURES].copy()
     y = df["Units Sold"].copy()
 
-    # create one batch by sampling rows
     batch = X.copy()
     batch["target"] = y
     batch = batch.sample(n=args.size, replace=True).reset_index(drop=True)
 
     # inject random drift on a random subset of features
-    # each run picks a different recipe → different realistic drift patterns
     drift_options = {
-        # Price: market changes, can go either way
-        "Price": lambda s: s * random.uniform(0.90, 1.25),
-        # Discount: promotions can intensify, never negative
-        "Discount": lambda s: (s + random.randint(0, 15)).clip(upper=80),
-        # Inventory: usually goes down (stock-outs), rarely up dramatically
-        "Inventory Level": lambda s: (s * random.uniform(0.5, 1.0)).clip(lower=0),
-        # Competitor pricing: market changes, can go either way
+        "Price":              lambda s: s * random.uniform(0.90, 1.25),
+        "Discount":           lambda s: (s + random.randint(0, 15)).clip(upper=80),
+        "Inventory Level":    lambda s: (s * random.uniform(0.5, 1.0)).clip(lower=0),
         "Competitor Pricing": lambda s: s * random.uniform(0.90, 1.20),
     }
 
-    # pick a random number of features to drift (between 0 and all)
     n_drifted = random.randint(0, len(drift_options))
     drifted_columns = random.sample(list(drift_options.keys()), n_drifted)
 
@@ -88,11 +78,9 @@ def main():
 
     print(f"  drifted columns this run: {drifted_columns or 'none'}")
 
-    # predict on the batch
     X_batch = batch[MODEL_FEATURES]
     predictions = np.clip(np.round(model.predict(X_batch)), 0, None).astype(int)
 
-    # save batch with clean column names
     batch = batch[MODEL_FEATURES + ["target"]].copy()
     batch.columns = CLEAN_FEATURES + ["target"]
     batch["prediction"] = predictions

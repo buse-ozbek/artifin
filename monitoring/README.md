@@ -134,4 +134,4 @@ SELECT timestamp, store_id, category, region, prediction FROM prediction_logs OR
 
 ## Diagram
 
-![Monitoring Pipeline](Retail_demand_monitoring_pipeline.png) 
+![Monitoring Pipeline](Image.png) 
