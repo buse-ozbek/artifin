@@ -9,6 +9,10 @@ Three MLflow experiments are tracked and compared:
   - Experiment 2: Random Forest Regressor  (ensemble baseline)
   - Experiment 3: Gradient Boosting Regressor (tuned)
 
+NOTE: The model is trained on TRAIN_YEAR only (default: 2022) so that
+later batches sampled from later years exhibit real temporal data drift
+in the monitoring pipeline.
+
 Usage:
     pip install mlflow scikit-learn pandas numpy
     python pipeline.py
@@ -29,14 +33,18 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from pathlib import Path
+mlflow.set_tracking_uri("http://127.0.0.1:5001")
+
 
 # ─────────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────────
-DATA_PATH  = "retail_store_inventory.csv"
+DATA_PATH = str(Path(__file__).resolve().parent.parent / "retail_store_inventory.csv")
 TARGET     = "Units Sold"
 EXPERIMENT = "Retail_Demand_Forecasting"
 MODEL_DIR  = "models"
+TRAIN_YEAR = 2022          # ← train only on this year, so 2023+ batches drift
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 
@@ -48,6 +56,12 @@ def load_and_preprocess(path: str):
 
     # Date-based features
     df["Date"]       = pd.to_datetime(df["Date"])
+
+    # ── TEMPORAL SPLIT: keep only TRAIN_YEAR rows ────────
+    before = len(df)
+    df = df[df["Date"].dt.year == TRAIN_YEAR].copy()
+    print(f"      Filtered to year {TRAIN_YEAR}: {before} → {len(df)} rows")
+
     df["Year"]       = df["Date"].dt.year
     df["Month"]      = df["Date"].dt.month
     df["DayOfWeek"]  = df["Date"].dt.dayofweek
@@ -125,6 +139,7 @@ def train_and_log(run_name, model, X_train, X_test, y_train, y_test,
 def main():
     print("=" * 52)
     print("  Retail Demand Forecasting — Training Pipeline")
+    print(f"  Training on year: {TRAIN_YEAR}")
     print("=" * 52)
 
     print("\n[1/5] Loading & preprocessing data...")
@@ -145,6 +160,7 @@ def main():
         "model_type": "LinearRegression",
         "fit_intercept": True,
         "note": "Simple baseline — straight line through the data",
+        "train_year": TRAIN_YEAR,
     }
     lr_model = LinearRegression(fit_intercept=True)
     metrics_lr, path_lr = train_and_log(
@@ -164,6 +180,7 @@ def main():
         "max_depth":         10,
         "min_samples_split": 5,
         "random_state":      42,
+        "train_year":        TRAIN_YEAR,
     }
     rf_model = RandomForestRegressor(
         n_estimators      = rf_params["n_estimators"],
@@ -190,6 +207,7 @@ def main():
         "max_depth":     5,
         "subsample":     0.8,
         "random_state":  42,
+        "train_year":    TRAIN_YEAR,
     }
     gb_model = GradientBoostingRegressor(
         n_estimators  = gb_params["n_estimators"],
@@ -251,7 +269,7 @@ def main():
     print(f"  Model registered as: {registered_model_name} -> Staging")
 
     print(f"\n{'='*52}")
-    print(f"  RESULTS SUMMARY")
+    print(f"  RESULTS SUMMARY (trained on year {TRAIN_YEAR})")
     print(f"  Exp1 LinearRegression  -> R2={metrics_lr['R2']}  MAE={metrics_lr['MAE']}  RMSE={metrics_lr['RMSE']}")
     print(f"  Exp2 RandomForest      -> R2={metrics_rf['R2']}  MAE={metrics_rf['MAE']}  RMSE={metrics_rf['RMSE']}")
     print(f"  Exp3 GradientBoosting  -> R2={metrics_gb['R2']}  MAE={metrics_gb['MAE']}  RMSE={metrics_gb['RMSE']}")

@@ -1,0 +1,10 @@
+mlflow
+scikit-learn
+pandas
+numpy
+scipy
+fastapi
+uvicorn
+psycopg[binary]
+joblib
+pytest

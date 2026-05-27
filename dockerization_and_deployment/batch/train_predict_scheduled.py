@@ -4,6 +4,9 @@ train_predict_scheduled.py
 Retail Store Inventory — Prefect Flow
 Wraps pipeline.py logic into Prefect tasks and a top-level flow.
 
+NOTE: Trains on TRAIN_YEAR only (default: 2022) to enable real
+temporal drift in the monitoring pipeline.
+
 Usage (direct test):
     python train_predict_scheduled.py
 
@@ -33,6 +36,7 @@ DATA_PATH  = "retail_store_inventory.csv"
 TARGET     = "Units Sold"
 EXPERIMENT = "Retail_Demand_Forecasting"
 MODEL_DIR  = "models"
+TRAIN_YEAR = 2022          # ← train only on this year
 
 
 # ─────────────────────────────────────────────────────────
@@ -46,6 +50,12 @@ def load_and_preprocess(path: str):
     df = pd.read_csv(path)
 
     df["Date"]      = pd.to_datetime(df["Date"])
+
+    # ── TEMPORAL SPLIT: keep only TRAIN_YEAR rows ────────
+    before = len(df)
+    df = df[df["Date"].dt.year == TRAIN_YEAR].copy()
+    logger.info(f"Filtered to year {TRAIN_YEAR}: {before} → {len(df)} rows")
+
     df["Year"]      = df["Date"].dt.year
     df["Month"]     = df["Date"].dt.month
     df["DayOfWeek"] = df["Date"].dt.dayofweek
@@ -189,7 +199,7 @@ def register_model(registered_model_name: str = "retail_demand_model"):
 # ─────────────────────────────────────────────────────────
 @flow(
     name="retail-demand-training-pipeline",
-    description="Trains 3 models, picks the best, registers it in MLflow Staging.",
+    description="Trains 3 models on TRAIN_YEAR data, picks the best, registers it in MLflow Staging.",
 )
 def retail_demand_training_pipeline(
     data_path: str = DATA_PATH,
@@ -198,6 +208,7 @@ def retail_demand_training_pipeline(
     logger = get_run_logger()
     logger.info("=" * 52)
     logger.info("  Retail Demand Forecasting — Training Pipeline")
+    logger.info(f"  Training on year: {TRAIN_YEAR}")
     logger.info("=" * 52)
 
     mlflow.set_tracking_uri(mlflow_tracking_uri)
@@ -214,6 +225,7 @@ def retail_demand_training_pipeline(
         "model_type": "LinearRegression",
         "fit_intercept": True,
         "note": "Simple baseline",
+        "train_year": TRAIN_YEAR,
     }
     metrics_lr, path_lr = train_and_log(
         run_name="Exp1_LinearRegression",
@@ -227,6 +239,7 @@ def retail_demand_training_pipeline(
         "model_type": "RandomForestRegressor",
         "n_estimators": 100, "max_depth": 10,
         "min_samples_split": 5, "random_state": 42,
+        "train_year": TRAIN_YEAR,
     }
     metrics_rf, path_rf = train_and_log(
         run_name="Exp2_RandomForest",
@@ -243,6 +256,7 @@ def retail_demand_training_pipeline(
         "model_type": "GradientBoostingRegressor",
         "n_estimators": 200, "learning_rate": 0.05,
         "max_depth": 5, "subsample": 0.8, "random_state": 42,
+        "train_year": TRAIN_YEAR,
     }
     metrics_gb, path_gb = train_and_log(
         run_name="Exp3_GradientBoosting",

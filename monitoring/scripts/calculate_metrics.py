@@ -38,7 +38,7 @@ def main():
     current = pd.read_csv(latest_file)
     batch_id = os.path.basename(latest_file).replace(".csv", "")
 
-    # compute drift on each feature using Kolmogorov-Smirnov test
+    # compute drift on each feature using Kolmogorov-Smirnov test - cdfmnulh
     drifted_features = 0
     for feature in FEATURES:
         _, p_value = ks_2samp(reference[feature], current[feature])
@@ -50,9 +50,9 @@ def main():
     # compute regression performance on the batch
     y_true = current["target"]
     y_pred = current["prediction"]
-    mae  = float(mean_absolute_error(y_true, y_pred))
-    rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
-    r2   = float(r2_score(y_true, y_pred))
+    mae  = float(mean_absolute_error(y_true, y_pred)) #g-to
+    rmse = float(np.sqrt(mean_squared_error(y_true, y_pred))) #g-tokmk
+    r2   = float(r2_score(y_true, y_pred)) #mhakbvdv
 
     # compute prediction distribution stats (regression equivalent of class shares)
     pred_mean = float(current["prediction"].mean())

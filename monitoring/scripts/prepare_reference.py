@@ -4,6 +4,10 @@ prepare_reference.py
 Creates the reference (baseline) dataset for monitoring.
 Mirrors the teacher's Iris example but adapted for the retail dataset.
 
+NOTE: Filters to REFERENCE_YEAR (default: 2022) so the reference
+distribution matches what the model was trained on. New batches
+sampled from later years will then show real temporal drift.
+
 Usage:
     python monitoring/scripts/prepare_reference.py
 """
@@ -13,6 +17,8 @@ import mlflow
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
+
+REFERENCE_YEAR = 2022     # ← must match TRAIN_YEAR in pipeline.py
 
 # Original column names the model was trained with
 MODEL_FEATURES = [
@@ -47,6 +53,12 @@ def main():
 
     # date feature engineering (same as training)
     df["Date"]      = pd.to_datetime(df["Date"])
+
+    # ── TEMPORAL SPLIT: keep only REFERENCE_YEAR rows ────
+    before = len(df)
+    df = df[df["Date"].dt.year == REFERENCE_YEAR].copy()
+    print(f"  filtered reference to year {REFERENCE_YEAR}: {before} → {len(df)} rows")
+
     df["Year"]      = df["Date"].dt.year
     df["Month"]     = df["Date"].dt.month
     df["DayOfWeek"] = df["Date"].dt.dayofweek
@@ -65,11 +77,11 @@ def main():
     # save raw features + target + prediction as reference dataset
     reference = X.copy()
     reference.columns = CLEAN_FEATURES
-    reference["target"]     = y
+    reference["target"]     = y.values
     reference["prediction"] = predictions
 
     reference.to_csv("data/reference.csv", index=False)
-    print("reference.csv created")
+    print(f"reference.csv created with {len(reference)} rows (year={REFERENCE_YEAR})")
 
 
 if __name__ == "__main__":
