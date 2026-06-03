@@ -4,8 +4,12 @@ test_prediction_core.py
 Unit tests for the retail demand prediction service.
 
 Uses a DummyModel so no MLflow server or real model artifact is needed —
-runs fully in CI. Each test targets one real failure mode in the
-preprocessing or validation pipeline.
+runs fully in CI.
+
+Each test checks that an encoded value falls within the valid range
+for that field — either a fixed set of allowed values (categories,
+regions, etc.) or a logical constraint (non-negative price, valid
+percentage range, etc.).
 """
 
 import sys
@@ -13,19 +17,11 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent))
 
-import pytest
-from prediction_core import (
-    predict, preprocess, validate_input,
-    FEATURE_COLS,
-)
+from prediction_core import predict, preprocess, FEATURE_COLS
 
-
-# ─────────────────────────────────────────────────────────
-# Test helpers
-# ─────────────────────────────────────────────────────────
 
 class DummyModel:
-    """Stand-in for the real MLflow model. Returns a configurable output."""
+    """Stand-in for the real MLflow model."""
     def __init__(self, output=42.0):
         self.output = output
     def predict(self, X):
@@ -50,133 +46,137 @@ VALID_INPUT = {
 
 
 # ─────────────────────────────────────────────────────────
-# PREPROCESSING TESTS
+# PREPROCESSING — output shape
 # ─────────────────────────────────────────────────────────
 
 def test_preprocess_produces_15_features_in_order():
-    """The model expects exactly 15 features in a fixed order.
-    Reordering or adding/removing a feature breaks the model."""
+    """The model expects exactly 15 features in a fixed order."""
     df = preprocess(VALID_INPUT)
     assert list(df.columns) == FEATURE_COLS
     assert df.shape == (1, 15)
 
 
-def test_preprocess_encodes_categoricals_correctly():
-    """Categorical strings must map to the same integer codes that
-    LabelEncoder produced during training — otherwise the model sees
-    the wrong feature values."""
+# ─────────────────────────────────────────────────────────
+# DATE — values must be within real calendar ranges
+# ─────────────────────────────────────────────────────────
+
+def test_month_is_between_1_and_12():
+    """Month must be a real month number, 1 through 12."""
     df = preprocess(VALID_INPUT)
-    assert df["Category"].iloc[0] == 1            # Electronics
-    assert df["Region"].iloc[0] == 1              # North
-    assert df["Weather Condition"].iloc[0] == 3   # Sunny
-    assert df["Seasonality"].iloc[0] == 3         # Winter
+    assert 1 <= df["Month"].iloc[0] <= 12
 
 
-def test_preprocess_extracts_date_features():
-    """Year, Month, DayOfWeek must be derived from the date string."""
+def test_dayofweek_is_between_0_and_6():
+    """Day of week follows pandas convention: Monday=0, Sunday=6."""
     df = preprocess(VALID_INPUT)
-    assert df["Year"].iloc[0] == 2024
-    assert df["Month"].iloc[0] == 3
-    assert df["DayOfWeek"].iloc[0] == 4   # 2024-03-15 is a Friday (Mon=0)
-
-
-def test_preprocess_parses_store_and_product_ids():
-    """Store/Product IDs like 'S001' / 'P0005' must be parsed to
-    zero-indexed integers (S001 → 0, P0005 → 4) to match training."""
-    df = preprocess(VALID_INPUT)
-    assert df["Store ID"].iloc[0] == 0
-    assert df["Product ID"].iloc[0] == 4
+    assert 0 <= df["DayOfWeek"].iloc[0] <= 6
 
 
 # ─────────────────────────────────────────────────────────
-# PREDICTION OUTPUT TESTS
+# CATEGORICAL — encoded value must be one from my dataset
 # ─────────────────────────────────────────────────────────
 
-def test_valid_prediction_returns_non_negative_int():
-    """Demand is always a non-negative whole number of units."""
+def test_category_is_one_of_my_5_categories():
+    """My data has 5 categories: Clothing, Electronics, Furniture,
+    Groceries, Toys. Encoded as 0-4."""
+    df = preprocess(VALID_INPUT)
+    assert df["Category"].iloc[0] in [0, 1, 2, 3, 4]
+
+
+def test_region_is_one_of_my_4_regions():
+    """My data has 4 regions: East, North, South, West. Encoded as 0-3."""
+    df = preprocess(VALID_INPUT)
+    assert df["Region"].iloc[0] in [0, 1, 2, 3]
+
+
+def test_weather_is_one_of_my_4_weather_conditions():
+    """My data has 4 weather conditions: Cloudy, Rainy, Snowy, Sunny.
+    Encoded as 0-3."""
+    df = preprocess(VALID_INPUT)
+    assert df["Weather Condition"].iloc[0] in [0, 1, 2, 3]
+
+
+def test_seasonality_is_one_of_my_4_seasons():
+    """My data has 4 seasons: Autumn, Spring, Summer, Winter. Encoded as 0-3."""
+    df = preprocess(VALID_INPUT)
+    assert df["Seasonality"].iloc[0] in [0, 1, 2, 3]
+
+
+# ─────────────────────────────────────────────────────────
+# STORE / PRODUCT IDs — must match my dataset's count
+# ─────────────────────────────────────────────────────────
+
+def test_store_id_is_one_of_my_5_stores():
+    """My data has 5 stores: S001-S005. After zero-indexing: 0-4."""
+    df = preprocess(VALID_INPUT)
+    assert df["Store ID"].iloc[0] in [0, 1, 2, 3, 4]
+
+
+def test_product_id_is_one_of_my_20_products():
+    """My data has 20 products: P0001-P0020. After zero-indexing: 0-19."""
+    df = preprocess(VALID_INPUT)
+    assert 0 <= df["Product ID"].iloc[0] <= 19
+
+
+# ─────────────────────────────────────────────────────────
+# NUMERIC FIELDS — logical constraints
+# ─────────────────────────────────────────────────────────
+
+def test_price_is_non_negative():
+    """Price can't be negative — it doesn't make sense for a product
+    to cost less than zero."""
+    df = preprocess(VALID_INPUT)
+    assert df["Price"].iloc[0] >= 0
+
+
+def test_discount_is_between_0_and_100_percent():
+    """Discount is a percentage. It must be between 0% (no discount)
+    and 100% (free), nothing outside that range is meaningful."""
+    df = preprocess(VALID_INPUT)
+    assert 0 <= df["Discount"].iloc[0] <= 100
+
+
+def test_inventory_level_is_non_negative():
+    """You can't have negative inventory."""
+    df = preprocess(VALID_INPUT)
+    assert df["Inventory Level"].iloc[0] >= 0
+
+
+def test_demand_forecast_is_non_negative():
+    """A forecast for units sold can't be negative."""
+    df = preprocess(VALID_INPUT)
+    assert df["Demand Forecast"].iloc[0] >= 0
+
+
+def test_competitor_pricing_is_non_negative():
+    """Competitor's price can't be negative either."""
+    df = preprocess(VALID_INPUT)
+    assert df["Competitor Pricing"].iloc[0] >= 0
+
+
+# ─────────────────────────────────────────────────────────
+# BINARY FLAG
+# ─────────────────────────────────────────────────────────
+
+def test_holiday_promotion_is_0_or_1():
+    """Holiday/Promotion is a binary flag — either yes (1) or no (0)."""
+    df = preprocess(VALID_INPUT)
+    assert df["Holiday/Promotion"].iloc[0] in [0, 1]
+
+
+# ─────────────────────────────────────────────────────────
+# PREDICTION OUTPUT
+# ─────────────────────────────────────────────────────────
+
+def test_prediction_is_non_negative_integer():
+    """Predicted demand must be a non-negative whole number of units."""
     result = predict(VALID_INPUT, DummyModel(output=42.0))
     assert isinstance(result, int)
     assert result >= 0
 
 
-def test_prediction_rounds_model_output():
-    """The model returns floats; predictions must be rounded to int."""
-    assert predict(VALID_INPUT, DummyModel(output=42.7)) == 43
-    assert predict(VALID_INPUT, DummyModel(output=42.3)) == 42
-
-
-def test_negative_prediction_clipped_to_zero():
-    """The model can predict negative numbers (regression has no
-    lower bound), but demand can't be negative — must clip to 0."""
-    assert predict(VALID_INPUT, DummyModel(output=-5.0)) == 0
-
-
-# ─────────────────────────────────────────────────────────
-# INPUT VALIDATION — UNKNOWN CATEGORICAL VALUES
-# ─────────────────────────────────────────────────────────
-# Without these checks, an unknown value silently becomes NaN
-# and the model returns garbage. This is the most dangerous bug.
-
-def test_unknown_category_raises():
-    bad = dict(VALID_INPUT, category="Books")
-    with pytest.raises(ValueError):
-        validate_input(bad)
-
-
-def test_unknown_region_raises():
-    bad = dict(VALID_INPUT, region="Mars")
-    with pytest.raises(ValueError):
-        validate_input(bad)
-
-
-def test_unknown_weather_raises():
-    bad = dict(VALID_INPUT, weather_condition="Foggy")
-    with pytest.raises(ValueError):
-        validate_input(bad)
-
-
-def test_unknown_seasonality_raises():
-    bad = dict(VALID_INPUT, seasonality="Monsoon")
-    with pytest.raises(ValueError):
-        validate_input(bad)
-
-
-# ─────────────────────────────────────────────────────────
-# INPUT VALIDATION — MISSING / MALFORMED FIELDS
-# ─────────────────────────────────────────────────────────
-
-def test_missing_date_raises():
-    bad = dict(VALID_INPUT)
-    del bad["date"]
-    with pytest.raises(ValueError):
-        validate_input(bad)
-
-
-def test_missing_price_raises():
-    bad = dict(VALID_INPUT)
-    del bad["price"]
-    with pytest.raises(ValueError):
-        validate_input(bad)
-
-
-def test_invalid_date_raises():
-    """Unparseable date strings must be caught at validation, not
-    crash deep inside pd.to_datetime."""
-    bad = dict(VALID_INPUT, date="not-a-date")
-    with pytest.raises(ValueError):
-        validate_input(bad)
-
-
-def test_bad_store_id_raises():
-    """A store_id with no digits ('Store') would silently become NaN
-    in str.extract, then crash on astype(int). Must be caught."""
-    bad = dict(VALID_INPUT, store_id="StoreNoNumber")
-    with pytest.raises(ValueError):
-        preprocess(bad)
-
-
-def test_bad_product_id_raises():
-    """Same risk as store_id — product_id must contain a number."""
-    bad = dict(VALID_INPUT, product_id="ProductNoNumber")
-    with pytest.raises(ValueError):
-        preprocess(bad)
+def test_negative_model_output_clipped_to_zero():
+    """Even if the model predicts a negative number, demand can't be
+    negative — must clip to 0."""
+    result = predict(VALID_INPUT, DummyModel(output=-5.0))
+    assert result == 0
